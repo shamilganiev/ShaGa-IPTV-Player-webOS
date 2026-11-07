@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ShaGa Player</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<video id="video"></video>
+<div id="vspin" class="spinner"></div>
+
+<!-- Первый запуск / смена плейлиста -->
+<section id="setup" class="screen">
+  <div class="setup-wrap">
+    <div class="brand"><span class="brand-mark"></span><span data-i18n="appName"></span></div>
+    <h1 data-i18n="setupTitle"></h1>
+    <p class="lead" data-i18n="setupHint"></p>
+    <input id="urlInput" type="url" spellcheck="false" autocomplete="off" autocapitalize="off">
+    <p id="setupError" class="error"></p>
+    <div class="btn-row">
+      <button id="btnLoad" class="btn" data-i18n="load"></button>
+      <button id="btnDemo" class="btn" data-i18n="demo"></button>
+    </div>
+    <p class="note" data-i18n="disclaimer"></p>
+  </div>
+</section>
+
+<!-- Список каналов -->
+<section id="browser" class="screen">
+  <div class="col-groups">
+    <div class="col-head brand"><span class="brand-mark"></span><span data-i18n="appName"></span></div>
+    <div id="groupList"></div>
+  </div>
+  <div class="col-chans">
+    <div class="col-head"><span id="groupTitle"></span><span id="groupCount" class="muted"></span></div>
+    <div id="chanList"></div>
+    <p id="chanEmpty" class="empty"></p>
+  </div>
+  <footer class="hints">
+    <span class="hint"><b class="k">OK</b><span data-i18n="hintPlay"></span></span>
+    <span class="hint"><b class="k">&#9664; &#9654;</b><span data-i18n="hintPanels"></span></span>
+    <span class="hint"><b class="k">0&ndash;9</b><span data-i18n="hintNumber"></span></span>
+    <span class="hint"><b class="dot yellow"></b><span data-i18n="hintFav"></span></span>
+    <span class="hint"><b class="dot blue"></b><span data-i18n="hintSettings"></span></span>
+  </footer>
+</section>
+
+<!-- Просмотр (слой поверх видео) -->
+<section id="player" class="screen">
+  <div id="banner" class="banner">
+    <div id="bNum" class="b-num"></div>
+    <div class="b-main">
+      <div id="bName" class="b-name"></div>
+      <div id="bSub" class="b-sub"></div>
+    </div>
+    <div id="bStatus" class="b-status"></div>
+  </div>
+</section>
+
+<!-- Настройки -->
+<section id="settings" class="screen">
+  <div class="set-wrap">
+    <h1 id="setTitle"></h1>
+    <p id="setSub" class="lead"></p>
+    <div id="setList"></div>
+    <div id="setGroups"></div>
+    <pre id="setLog"></pre>
+  </div>
+  <footer class="hints">
+    <span class="hint"><b class="k">OK</b><span data-i18n="hintChange"></span></span>
+    <span class="hint"><b class="k">&#8617;</b><span data-i18n="back"></span></span>
+  </footer>
+</section>
+
+<div id="numosd"></div>
+<div id="busy"><div class="spinner on"></div><p id="busyText"></p></div>
+<div id="toast"></div>
+
+<div id="confirm" class="modal">
+  <div class="box">
+    <h2 id="cfTitle"></h2>
+    <div id="cfBtns" class="btn-row"></div>
+  </div>
+</div>
+
+<div id="pinpad" class="modal">
+  <div class="box">
+    <h2 id="ppTitle"></h2>
+    <div id="ppDots" class="pp-dots"><i></i><i></i><i></i><i></i></div>
+    <p id="ppMsg" class="error"></p>
+    <div id="ppKeys" class="pp-keys"></div>
+  </div>
+</div>
+
+<!-- Обычные скрипты, не ES-модули: модули не грузятся с file:// -->
+<script src="js/log.js"></script>
+<script src="js/lib/hls.min.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/m3u.js"></script>
+<script src="js/source.js"></script>
+<script src="js/vlist.js"></script>
+<script src="js/dialogs.js"></script>
+<script src="js/player.js"></script>
+<script src="js/browser.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/setup.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
