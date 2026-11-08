@@ -276,6 +276,15 @@ var Player = {
     $('bSub').innerHTML = '';
     $('bSub').appendChild(document.createTextNode(ch.group || t('noGroup')));
     if (App.isFav(ch)) $('bSub').appendChild(document.createTextNode('  ★'));
+    var pr = EPG.now(ch), bp = $('bProg');
+    bp.innerHTML = '';
+    if (pr) {
+      bp.appendChild(document.createTextNode(pr.t));
+      var tm = document.createElement('span');
+      tm.className = 't';
+      tm.textContent = EPG.hm(pr.s) + ' – ' + EPG.hm(pr.e);
+      bp.appendChild(tm);
+    }
     var st = $('bStatus');
     st.classList.toggle('err', this.state === 'error');
     st.textContent = this.state === 'loading' ? t('stConnecting')
@@ -316,8 +325,9 @@ var Player = {
 
   onKey: function (code) {
     switch (code) {
-      case K.CHUP: case K.UP: this.step(1); return true;
-      case K.CHDN: case K.DOWN: this.step(-1); return true;
+      // «Как по списку» (по умолчанию): вверх — к меньшему номеру. «Классика»: вверх — к большему.
+      case K.CHUP: case K.UP: this.step(Config.d.zapInvert ? -1 : 1); return true;
+      case K.CHDN: case K.DOWN: this.step(Config.d.zapInvert ? 1 : -1); return true;
       case K.OK:
         if (this.state === 'error') this.start(this.ch);
         else App.show('browser', { fromPlayer: true });

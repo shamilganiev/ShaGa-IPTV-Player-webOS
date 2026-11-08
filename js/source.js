@@ -3,27 +3,33 @@
 var Source = {
   TIMEOUT: 20000,
 
+  // fetch с cache: 'no-store' — всегда свежий плейлист, мимо HTTP-кэша
+  // (иначе «обновить» могло молча вернуть старую копию). Заголовков не добавляем,
+  // чтобы не было лишних CORS-проверок на серверах провайдеров.
   fetchText: function (url) {
-    var self = this;
-    return new Promise(function (resolve, reject) {
-      var t0 = Date.now();
-      Log.info('Плейлист: загрузка ' + Log.url(url));
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', url, true);
-      xhr.timeout = self.TIMEOUT;
-      xhr.onload = function () {
-        // status 0 бывает у локальных файлов — тогда смотрим, пришёл ли текст
-        if ((xhr.status >= 200 && xhr.status < 300) || (xhr.status === 0 && xhr.responseText)) {
-          Log.info('Плейлист: получено ' + Math.round(xhr.responseText.length / 1024) + ' КБ за ' + (Date.now() - t0) + ' мс');
-          resolve(xhr.responseText);
-        } else {
-          Log.error('Плейлист: HTTP ' + xhr.status);
-          reject({ code: 'http', status: xhr.status });
-        }
-      };
-      xhr.onerror = function () { Log.error('Плейлист: сетевая ошибка (нет связи или CORS) через ' + (Date.now() - t0) + ' мс'); reject({ code: 'network' }); };
-      xhr.ontimeout = function () { Log.error('Плейлист: таймаут ' + self.TIMEOUT + ' мс'); reject({ code: 'timeout' }); };
-      xhr.send();
+    var self = this, t0 = Date.now();
+    Log.info('Плейлист: загрузка ' + Log.url(url));
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, this.TIMEOUT);
+    return fetch(url, { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined }).then(function (res) {
+      if (!res.ok) {
+        Log.error('Плейлист: HTTP ' + res.status);
+        throw { code: 'http', status: res.status };
+      }
+      return res.text();
+    }).then(function (text) {
+      clearTimeout(timer);
+      Log.info('Плейлист: получено ' + Math.round(text.length / 1024) + ' КБ за ' + (Date.now() - t0) + ' мс');
+      return text;
+    }, function (err) {
+      clearTimeout(timer);
+      if (err && err.code) throw err;
+      if (err && err.name === 'AbortError') {
+        Log.error('Плейлист: таймаут ' + self.TIMEOUT + ' мс');
+        throw { code: 'timeout' };
+      }
+      Log.error('Плейлист: сетевая ошибка (нет связи или CORS) через ' + (Date.now() - t0) + ' мс');
+      throw { code: 'network' };
     });
   },
 

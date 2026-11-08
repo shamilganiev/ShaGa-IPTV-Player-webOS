@@ -24,7 +24,7 @@ function VList(el, opts) {
   el.addEventListener('wheel', function (e) {
     e.preventDefault();
     self.onPointer();
-    self.move(e.deltaY > 0 ? 1 : -1);
+    self.move(e.deltaY > 0 ? 1 : -1, false);
   }, { passive: false });
 }
 
@@ -81,9 +81,14 @@ VList.prototype.setIndex = function (i) {
   this.render();
 };
 
-VList.prototype.move = function (d) {
-  if (!this.items.length) return false;
-  var ni = this.clamp(this.index + d);
+// Шаг на одну строку зацикливается (с последней — на первую и обратно).
+// wrap = false — у краёв останавливаемся (листание страницами).
+VList.prototype.move = function (d, wrap) {
+  var n = this.items.length;
+  if (!n) return false;
+  var ni = this.index + d;
+  if (wrap !== false && Math.abs(d) === 1) ni = (ni + n) % n;
+  else ni = this.clamp(ni);
   if (ni === this.index) return false;
   this.index = ni;
   this.render();
@@ -92,7 +97,7 @@ VList.prototype.move = function (d) {
 };
 
 VList.prototype.page = function (dir) {
-  return this.move(dir * (this.capacity() - 1));
+  return this.move(dir * (this.capacity() - 1), false);
 };
 
 VList.prototype.setActive = function (a) {

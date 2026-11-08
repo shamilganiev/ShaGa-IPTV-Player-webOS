@@ -17,19 +17,17 @@ function isInput(el) {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
 }
 
-// Группы с такими названиями при первой загрузке плейлиста скрываются.
-// Пользователь может открыть их в настройках.
-// «ххх» — кириллицей: так бывает в русских плейлистах
-var ADULT_RE = /(xxx|ххх|adult|18\s*\+|взросл|эрот|porn)/i;
-
 var App = {
-  version: '0.1.4',
+  version: '0.4.0',
   channels: [],
   groupOrder: [],    // группы в порядке появления в плейлисте
   groupMap: {},      // группа -> [каналы]
   byNum: {},         // номер -> канал
   meta: {},
   favSet: {},
+  plId: null,        // плейлист, который сейчас показан
+  plStale: false,    // показана сохранённая копия, обновить не удалось
+  search: null,      // { q, list } — результаты поиска
   screens: {},
   screen: null,
   prev: null,
@@ -41,11 +39,11 @@ var App = {
     Config.load();
     // «Под PIN-кодом» не переживает перезапуск
     this.hideAllLocked('запуск');
-    var sys = (navigator.language || 'en').toLowerCase();
-    Lang.set(Config.d.lang || (sys.indexOf('ru') === 0 ? 'ru' : 'en'));
+    Lang.set(Lang.resolve(Config.d.lang));
     this.applyI18n();
 
     PinPad.init();
+    Prompt.init();
     Player.init();
     Browser.init();
     Settings.init();
@@ -61,48 +59,283 @@ var App = {
       if (visible) App.refreshScreen();
     });
     setInterval(function () { App.checkLocks(); }, 30000);
+    // Программа передач: перерисовка после загрузки и раз в минуту (сменилась передача, сдвинулся прогресс)
+    EPG.onUpdate = function () { Browser.refreshEpg(); if (Settings.mode === 'main' && App.screen === Settings) Settings.draw(); };
+    setInterval(function () {
+      Browser.refreshEpg();
+      if (App.screen === Player && $('banner').classList.contains('on')) Player.drawBanner();
+    }, 60000);
 
     this.start();
   },
 
   start: function () {
-    var self = this, src = Config.d.source;
-    Log.info('Версия ' + this.version + ', язык ' + Lang.cur + ', движок ' + Config.d.engine +
-      ', hls.js ' + (window.Hls ? Hls.version + (Hls.isSupported() ? '' : ' (не поддерж.)') : 'нет') + ', плейлист: ' + (src ? Log.url(src.url) : 'не задан'));
-    if (!src) { this.show('setup'); return; }
+    var self = this, d = Config.d;
+    Log.info('Версия ' + this.version + ', язык ' + Lang.cur + (d.lang ? '' : ' (авто)') + ', движок ' + d.engine +
+      ', hls.js ' + (window.Hls ? Hls.version + (Hls.isSupported() ? '' : ' (не поддерж.)') : 'нет') +
+      ', плейлистов ' + d.playlists.length);
+    var pl = Playlists.byId(d.lastOkId) || d.playlists[0];
+    if (!pl) { this.show('setup'); return; }
 
-    var cache = Store.get('playlist', null);
-    if (cache && cache.url === src.url && cache.channels && cache.channels.length) {
-      // Сразу показываем сохранённый список, свежий подтягиваем в фоне
-      Log.info('Список из кэша: ' + cache.channels.length + ' каналов');
-      this.setChannels(cache, false);
-      this.show('browser');
-      this.autoplayLast();
-      // Обновляем плейлист в фоне, но только когда канал уже пошёл:
-      // скачивание и разбор (около секунды на ТВ) не должны тормозить старт видео
-      Player.onceStarted(function () {
-        Source.load(src).then(function (res) {
-          self.setChannels(res, true);
-          if (self.screen === Browser) Browser.enter({});
-        }).catch(function () { Toast.show(t('fromCache'), 4000); });
+    // Переход с 0.3.x: старый кэш из localStorage переносим в IndexedDB
+    var old = d.migratedFrom03 ? Store.get('playlist', null) : null;
+    var ready = old && old.url === pl.url ? Cache.set(pl.id, old) : Promise.resolve();
+    if (d.migratedFrom03) { delete d.migratedFrom03; Store.del('playlist'); Config.save(); }
+    ready.then(function () { self.openPlaylist(pl, { startup: true }); });
+  },
+
+  // ---------- Плейлисты ----------
+  // Сначала кэш (сразу на экран), потом сеть. opts.startup — включить последний канал.
+  openPlaylist: function (pl, opts) {
+    var self = this;
+    opts = opts || {};
+    Log.info('Плейлист «' + pl.name + '» (id ' + pl.id + ')' + (opts.startup ? ' при запуске' : ''));
+    Cache.get(pl.id).then(function (cache) {
+      if (cache && cache.url === pl.url && cache.channels && cache.channels.length) {
+        Log.info('Список из кэша: ' + cache.channels.length + ' каналов');
+        self.applyPlaylist(pl, cache, false);
+        if (opts.startup) self.autoplayLast();
+        // Свежий плейлист — в фоне, когда канал уже пошёл (разбор на ТВ занимает около секунды)
+        Player.onceStarted(function () { self.refreshPlaylist(pl, true).catch(function () {}); });
+        return;
+      }
+      Busy.show(t('loading'));
+      Source.load({ type: 'url', url: pl.url }).then(function (res) {
+        Busy.hide();
+        self.applyPlaylist(pl, res, true);
+        if (opts.startup) self.autoplayLast();
+      }).catch(function (err) {
+        Busy.hide();
+        Log.error('Плейлист «' + pl.name + '» не загрузился, кэша нет');
+        if (self.plId === null) self.show('browser');   // при запуске показываем пустой список
+        self.showLoadError(err);
       });
-      return;
-    }
-
-    Busy.show(t('loading'));
-    Source.load(src).then(function (res) {
-      Busy.hide();
-      self.setChannels(res, true);
-      self.show('browser');
-      self.autoplayLast();
-    }).catch(function (err) {
-      Busy.hide();
-      self.show('setup', { allowBack: false, error: self.errText(err) });
     });
   },
 
+  // Обновить текущий плейлист из сети. background — тихо, при ошибке пометить «копия».
+  refreshPlaylist: function (pl, background) {
+    var self = this;
+    return Source.load({ type: 'url', url: pl.url }).then(function (res) {
+      if (self.plId !== pl.id) return res;
+      self.setChannels(res);
+      self.saveCache(pl, res);
+      self.plStale = false;
+      Config.d.lastOkId = pl.id;
+      Config.save();
+      if (self.screen === Browser) Browser.enter({});
+      return res;
+    }).catch(function (err) {
+      if (self.plId !== pl.id) throw err;
+      if (background) {
+        self.plStale = true;
+        Toast.show(pl.name + ' — ' + t('staleNote'), 5000);
+        if (self.screen === Browser) Browser.enter({});
+      }
+      throw err;
+    });
+  },
+
+  applyPlaylist: function (pl, res, fresh) {
+    if (this.plId !== pl.id && Player.ch) Player.stop();
+    this.plId = pl.id;
+    this.plStale = false;
+    this.search = null;
+    this.openLocked = null;
+    this.hideAdultGroups(res.channels);
+    this.setChannels(res);
+    if (fresh) {
+      this.saveCache(pl, res);
+      Config.d.lastOkId = pl.id;
+      Config.save();
+    }
+    this.show('browser');
+  },
+
+  saveCache: function (pl, res) {
+    Cache.set(pl.id, { url: pl.url, at: Date.now(), meta: res.meta || {}, channels: res.channels });
+  },
+
+  showLoadError: function (err) {
+    Confirm.open(t('errTitle'), [{ label: t('ok') }], null, this.errText(err) + ' ' + t('errHint'));
+  },
+
+  // Группы для взрослых, которые встретились впервые, скрываются (как в Roku)
+  hideAdultGroups: function (channels) {
+    var d = Config.d, seen = d.seenGroups || (d.seenGroups = {}), changed = false;
+    channels.forEach(function (ch) {
+      var g = ch.group;
+      if (seen[g]) return;
+      seen[g] = 1;
+      changed = true;
+      if (Text.isAdult(g) && d.hidden.indexOf(g) < 0 && d.locked.indexOf(g) < 0) {
+        d.hidden.push(g);
+        Log.info('Группа «' + g + '» скрыта: для взрослых');
+      }
+    });
+    if (changed) Config.save();
+  },
+
+  // Окно «Плейлисты»: сохранённые (текущий «*»), «+ Добавить плейлист», «Закрыть»
+  openPlaylists: function () {
+    var self = this, items = [];
+    Playlists.all().forEach(function (pl) {
+      var cur = pl.id === self.plId;
+      items.push({ label: pl.name + (cur && self.plStale ? ' — ' + t('staleNote') : ''), mark: cur,
+                   action: function () { self.playlistActions(pl); } });
+    });
+    items.push({ label: t('addPlaylist'), action: function () { self.addPlaylist(); } });
+    items.push({ label: t('close') });
+    var focus = 0;
+    Playlists.all().forEach(function (pl, i) { if (pl.id === self.plId) focus = i; });
+    Menu.open(t('playlistsTitle'), t('playlistsMsg'), items, { focus: focus });
+  },
+
+  playlistActions: function (pl) {
+    var self = this;
+    Menu.open(pl.name, '', [
+      { label: t('open'), action: function () { self.openPlaylist(pl); } },
+      { label: t('editLink'), action: function () { self.editPlaylist(pl); } },
+      { label: t('del'), action: function () { self.deletePlaylist(pl); } },
+      { label: t('cancel'), action: function () { self.openPlaylists(); } }
+    ], { onCancel: function () { self.openPlaylists(); } });
+  },
+
+  // Проверить ссылку из окна ввода. Возвращает нормализованную ссылку или null (ошибка показана).
+  checkUrl: function (raw, prompt) {
+    var url = Text.normalizeUrl(raw);
+    if (url.length > Text.MAX_URL) { prompt.error(t('tooLong', { n: Text.MAX_URL })); return null; }
+    if (!Text.isValidUrl(url)) { prompt.error(t('invalidUrl')); return null; }
+    return url;
+  },
+
+  addPlaylist: function () {
+    var self = this;
+    if (Playlists.all().length >= Playlists.MAX) {
+      Confirm.open(t('playlistsTitle'), [{ label: t('ok') }], null, t('limitReached', { n: Playlists.MAX }));
+      return;
+    }
+    Prompt.open({
+      title: t('urlTitle'), msg: t('urlMsg'), placeholder: t('urlPlaceholder'),
+      onSubmit: function (raw, prompt) {
+        var url = self.checkUrl(raw, prompt);
+        if (!url) return;
+        var dup = Playlists.byUrl(url);
+        if (dup) { prompt.close(); Toast.show(t('dupOpened')); self.openPlaylist(dup); return; }
+        // Сохраняем только после успешной загрузки
+        Busy.show(t('loading'));
+        Source.load({ type: 'url', url: url }).then(function (res) {
+          Busy.hide();
+          prompt.close();
+          var pl = Playlists.add(url);
+          Log.info('Добавлен плейлист «' + pl.name + '»');
+          self.applyPlaylist(pl, res, true);
+        }).catch(function (err) {
+          Busy.hide();
+          prompt.error(self.errText(err));
+        });
+      }
+    });
+  },
+
+  editPlaylist: function (pl) {
+    var self = this;
+    Prompt.open({
+      title: t('editTitle'), msg: t('urlMsg'), value: pl.url, placeholder: t('urlPlaceholder'),
+      onCancel: function () { self.playlistActions(pl); },
+      onSubmit: function (raw, prompt) {
+        var url = self.checkUrl(raw, prompt);
+        if (!url) return;
+        var dup = Playlists.byUrl(url);
+        if (dup && dup.id !== pl.id) { prompt.close(); Toast.show(t('dupOpened')); self.openPlaylist(dup); return; }
+        Busy.show(t('loading'));
+        Source.load({ type: 'url', url: url }).then(function (res) {
+          Busy.hide();
+          prompt.close();
+          Playlists.setUrl(pl, url);
+          Log.info('Ссылка плейлиста id ' + pl.id + ' изменена: ' + pl.name);
+          self.plId = null;            // чтобы applyPlaylist пересобрал всё заново
+          self.applyPlaylist(pl, res, true);
+        }).catch(function (err) {
+          Busy.hide();
+          prompt.error(self.errText(err));
+        });
+      }
+    });
+  },
+
+  deletePlaylist: function (pl) {
+    var self = this;
+    Confirm.open(t('deleteTitle'), [
+      { label: t('del'), action: function () {
+          Playlists.remove(pl.id);
+          Cache.del(pl.id);
+          Log.info('Удалён плейлист «' + pl.name + '»');
+          if (self.plId !== pl.id) { self.openPlaylists(); return; }
+          // Удалили текущий: открываем другой или возвращаемся к приветствию
+          Player.stop();
+          self.plId = null;
+          self.setChannels({ channels: [], meta: {} });
+          var next = Playlists.byId(Config.d.lastOkId) || Playlists.all()[0];
+          if (next) self.openPlaylist(next); else self.show('setup');
+        } },
+      { label: t('cancel'), action: function () { self.playlistActions(pl); } }
+    ], function () { self.playlistActions(pl); }, pl.name + '. ' + t('deleteMsg'));
+  },
+
+  // ---------- Поиск (как в Roku: латиница находит кириллицу, акценты не важны) ----------
+  openSearch: function () {
+    var self = this;
+    Prompt.open({
+      title: t('searchTitle'), msg: t('searchMsg'), value: this.search ? this.search.q : '',
+      onSubmit: function (q, prompt) {
+        q = String(q).trim();
+        if (!q) { prompt.close(); return; }
+        prompt.close();
+        self.runSearch(q);
+      }
+    });
+  },
+
+  runSearch: function (q) {
+    var self = this, qn = Text.norm(q), qf = Text.fuzz(qn);
+    var res = this.channels.filter(function (ch) {
+      if (self.isRestricted(ch.group)) return false;          // скрытые и закрытые не ищутся
+      if (ch.k == null) ch.k = Text.searchKey(ch.name);
+      return Text.matches(ch.k, qn, qf);
+    });
+    Log.info('Поиск «' + qn + '» / «' + qf + '» → ' + res.length);
+    if (!res.length) {
+      Confirm.open(t('searchTitle'), [{ label: t('ok') }], null, t('noResults', { q: q }));
+      return;
+    }
+    this.search = { q: q, list: res };
+    if (this.screen !== Browser) this.show('browser');
+    Browser.showSearch();
+  },
+
+  // ---------- Язык ----------
+  openLanguage: function () {
+    var self = this, pref = Config.d.lang;
+    var items = [{ code: null, label: t('langAuto') }].concat(Lang.list.map(function (c) {
+      return { code: c, label: I18N[c]._name };
+    }));
+    var focus = 0;
+    Menu.open(t('langTitle'), '', items.map(function (it, i) {
+      if (it.code === pref) focus = i;
+      return { label: it.label, mark: it.code === pref, action: function () {
+        Config.d.lang = it.code;
+        Config.save();
+        Lang.set(Lang.resolve(it.code));
+        Log.info('Язык: ' + (it.code || 'авто') + ' → ' + Lang.cur);
+        self.applyI18n();
+        self.refreshScreen();
+      } };
+    }), { focus: focus });
+  },
+
   // ---------- Данные ----------
-  setChannels: function (res, save) {
+  setChannels: function (res) {
     this.channels = res.channels;
     this.meta = res.meta || {};
     var order = [], map = {}, byNum = {};
@@ -114,25 +347,32 @@ var App = {
     this.groupOrder = order;
     this.groupMap = map;
     this.byNum = byNum;
-    if (save) {
-      var ok = Store.set('playlist', { url: Config.d.source.url, at: Date.now(), meta: this.meta, channels: this.channels });
-      if (!ok) Log.warn('Кэш плейлиста не сохранился (мало места в localStorage)');
+    if (this.search) {
+      // результаты поиска пересчитываются на новом списке
+      var q = this.search.q;
+      this.search = null;
+      if (this.channels.length) {
+        var self = this, qn = Text.norm(q), qf = Text.fuzz(qn);
+        var list = this.channels.filter(function (ch) {
+          if (ch.k == null) ch.k = Text.searchKey(ch.name);
+          return Text.matches(ch.k, qn, qf);
+        });
+        if (list.length) this.search = { q: q, list: list };
+      }
     }
+    if (this.channels.length) this.scheduleEpg();
   },
 
-  setSource: function (src, res) {
-    var d = Config.d;
-    var changed = !d.source || d.source.url !== src.url;
-    d.source = src;
-    if (changed) {
-      d.last = null;
-      res.channels.forEach(function (ch) {
-        if (ADULT_RE.test(ch.group) && d.hidden.indexOf(ch.group) < 0) d.hidden.push(ch.group);
+  // EPG качается после старта видео (как и обновление плейлиста), чтобы не тормозить канал
+  scheduleEpg: function (force) {
+    var self = this;
+    // setTimeout 0: при запуске сначала стартует последний канал, и только потом мы ждём его картинку
+    setTimeout(function () {
+      if (Player.ch && Player.state === 'loading') Log.info('EPG: загрузка начнётся после старта видео');
+      Player.onceStarted(function () {
+        setTimeout(function () { EPG.load(self.meta, self.channels, force); }, 1500);
       });
-    }
-    Config.save();
-    Log.info('Новый источник: ' + Log.url(src.url) + (changed ? ', скрыты группы: ' + (d.hidden.join(', ') || 'нет') : ''));
-    this.setChannels(res, true);
+    }, 0);
   },
 
   isHidden: function (g) { return Config.d.hidden.indexOf(g) >= 0; },
@@ -146,6 +386,9 @@ var App = {
     var self = this;
     if (gid === '__fav') {
       return this.channels.filter(function (c) { return self.favSet[c.name] && !self.isRestricted(c.group); });
+    }
+    if (gid === '__search') {
+      return this.search ? this.search.list.filter(function (c) { return !self.isRestricted(c.group); }) : [];
     }
     if (gid === '__all') {
       return this.channels.filter(function (c) { return !self.isRestricted(c.group); });
@@ -214,14 +457,21 @@ var App = {
 
   // ---------- PIN-код ----------
   // Спрашивает PIN каждый раз (запоминание — забота вызывающего). Без PIN — сразу cb.
+  // Настоящий PIN важнее мастер-кода; мастер-код только предлагает сбросить PIN.
   askPin: function (cb) {
+    var self = this;
     if (!Config.d.pin) { cb(); return; }
     PinPad.open({
       title: t('pinEnter'),
+      hint: t('pinEnterHint'),
       onDone: function (p, pad) {
         if (hashPin(p) === Config.d.pin) {
           pad.close();
           cb();
+        } else if (isMasterPin(p)) {
+          pad.close();
+          Log.info('PIN: введён мастер-код');
+          self.confirmResetPin();
         } else {
           pad.reset(t('pinEnter'), t('pinWrong'));
         }
@@ -229,10 +479,30 @@ var App = {
     });
   },
 
-  setNewPin: function (cb) {
+  confirmResetPin: function () {
+    var self = this;
+    Confirm.open(t('pinResetTitle'), [
+      { label: t('pinReset'), action: function () { self.removePin('сброс мастер-кодом'); } },
+      { label: t('cancel') }
+    ], null, t('pinResetMsg'));
+  },
+
+  // Удаление и сброс PIN: группы «По PIN» становятся скрытыми
+  removePin: function (why) {
+    this.hideAllLocked(why);
+    Config.d.pin = null;
+    Config.save();
+    Log.info('PIN удалён: ' + why);
+    Toast.show(t('pinRemoved'), 4000);
+    this.refreshScreen();
+  },
+
+  // hint — пояснение в окне (например, «чтобы ослабить защиту, сначала придумайте PIN»)
+  setNewPin: function (cb, hint) {
     var self = this, first = null;
     PinPad.open({
       title: t('pinNew'),
+      hint: hint || '',
       onDone: function (p, pad) {
         if (first === null) { first = p; pad.reset(t('pinRepeat')); return; }
         if (p === first) {
@@ -354,6 +624,8 @@ var App = {
 
     if (PinPad.isOpen) { if (PinPad.onKey(code)) e.preventDefault(); return; }
     if (Confirm.isOpen) { if (Confirm.onKey(code)) e.preventDefault(); return; }
+    if (Menu.isOpen) { if (Menu.onKey(code)) e.preventDefault(); return; }
+    if (Prompt.isOpen) { if (Prompt.onKey(code)) e.preventDefault(); return; }
 
     if (!inInput && this.screen && this.screen.acceptsDigits) {
       var d = digitOf(code);
@@ -366,3 +638,15 @@ var App = {
 };
 
 window.addEventListener('load', function () { App.init(); });
+
+// Мастер-код только для сброса PIN: текущее местное время ЧЧММ (24 ч) задом наперёд.
+// 13:45 → «1345» → «5431». Подходит и предыдущая минута. Как в Roku-версии.
+function isMasterPin(pin) {
+  var now = Date.now();
+  for (var off = 0; off <= 60000; off += 60000) {
+    var d = new Date(now - off);
+    var hhmm = (d.getHours() < 10 ? '0' : '') + d.getHours() + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+    if (pin === hhmm.split('').reverse().join('')) return true;
+  }
+  return false;
+}

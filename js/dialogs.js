@@ -28,13 +28,16 @@ var Confirm = {
   btns: [],
   onCancel: null,
 
-  open: function (title, buttons, onCancel) {
+  // msg — необязательный текст под заголовком
+  open: function (title, buttons, onCancel, msg) {
     var self = this;
     this.isOpen = true;
     this.btns = buttons;
     this.onCancel = onCancel || null;
     this.idx = 0;
     $('cfTitle').textContent = title;
+    $('cfMsg').textContent = msg || '';
+    $('cfMsg').style.display = msg ? '' : 'none';
     var box = $('cfBtns');
     box.innerHTML = '';
     buttons.forEach(function (b, i) {
@@ -96,9 +99,11 @@ var PinPad = {
     });
   },
 
-  // opts.title, opts.onDone(pin, pad), opts.onCancel()
+  // opts.title, opts.hint, opts.onDone(pin, pad), opts.onCancel()
   open: function (opts) {
     this.isOpen = true;
+    $('ppHint').textContent = opts.hint || '';
+    $('ppHint').style.display = opts.hint ? '' : 'none';
     this.onDone = opts.onDone;
     this.onCancel = opts.onCancel || null;
     this.idx = 0;
@@ -180,5 +185,144 @@ var Num = {
     var n = parseInt(this.buf, 10);
     this.buf = '';
     if (n) App.playNumber(n);
+  }
+};
+
+// ---------- Вертикальное меню (плейлисты, язык, режим группы) ----------
+// items: [{ label, mark (текущий — «* »), action }]. Список зациклен.
+var Menu = {
+  isOpen: false,
+  idx: 0,
+  items: [],
+  onCancel: null,
+
+  open: function (title, msg, items, opts) {
+    opts = opts || {};
+    var self = this;
+    this.isOpen = true;
+    this.items = items;
+    this.onCancel = opts.onCancel || null;
+    this.idx = opts.focus != null ? opts.focus : 0;
+    $('mnTitle').textContent = title;
+    $('mnMsg').textContent = msg || '';
+    $('mnMsg').style.display = msg ? '' : 'none';
+    var box = $('mnList');
+    box.innerHTML = '';
+    items.forEach(function (it, i) {
+      var row = document.createElement('div');
+      row.className = 'm-row';
+      row.textContent = (it.mark ? '* ' : '') + it.label;
+      row.addEventListener('mousemove', function () { if (self.idx !== i) { self.idx = i; self.draw(); } });
+      row.addEventListener('click', function () { self.idx = i; self.choose(); });
+      box.appendChild(row);
+    });
+    $('menu').classList.add('on');
+    this.draw();
+  },
+
+  draw: function () {
+    var rows = $('mnList').children;
+    for (var i = 0; i < rows.length; i++) rows[i].classList.toggle('focus', i === this.idx);
+  },
+
+  close: function () {
+    this.isOpen = false;
+    $('menu').classList.remove('on');
+  },
+
+  choose: function () {
+    var it = this.items[this.idx];
+    this.close();
+    if (it && it.action) it.action();
+  },
+
+  onKey: function (code) {
+    var n = this.items.length;
+    if (code === K.UP) { this.idx = (this.idx - 1 + n) % n; this.draw(); }
+    else if (code === K.DOWN) { this.idx = (this.idx + 1) % n; this.draw(); }
+    else if (code === K.OK) this.choose();
+    else if (code === K.BACK) { this.close(); if (this.onCancel) this.onCancel(); }
+    return true;
+  }
+};
+
+// ---------- Окно ввода текста (ссылка на плейлист, поиск) ----------
+// opts: title, msg, value, placeholder, onSubmit(value, prompt), onCancel()
+// onSubmit сам решает: prompt.close() или prompt.error('текст').
+var Prompt = {
+  isOpen: false,
+  idx: 0,          // 0 — поле, 1 — OK, 2 — Отмена
+  opts: null,
+
+  init: function () {
+    var self = this;
+    this.input = $('prInput');
+    this.els = [this.input, $('prOk'), $('prCancel')];
+    this.els.forEach(function (el, i) {
+      el.addEventListener('mousemove', function () { if (self.idx !== i) { self.idx = i; self.draw(); } });
+    });
+    $('prOk').addEventListener('click', function () { self.submit(); });
+    $('prCancel').addEventListener('click', function () { self.cancel(); });
+  },
+
+  open: function (opts) {
+    this.isOpen = true;
+    this.opts = opts;
+    $('prTitle').textContent = opts.title;
+    $('prMsg').textContent = opts.msg || '';
+    $('prOk').textContent = t('ok');
+    $('prCancel').textContent = t('cancel');
+    this.input.value = opts.value || '';
+    this.input.placeholder = opts.placeholder || '';
+    this.error('');
+    $('prompt').classList.add('on');
+    this.idx = 0;
+    this.draw();
+    // сразу открываем клавиатуру — пользователь пришёл сюда, чтобы печатать
+    var inp = this.input;
+    setTimeout(function () { inp.focus(); }, 50);
+  },
+
+  draw: function () {
+    for (var i = 0; i < this.els.length; i++) this.els[i].classList.toggle('focus', i === this.idx);
+  },
+
+  error: function (msg) { $('prError').textContent = msg || ''; },
+
+  close: function () {
+    this.isOpen = false;
+    this.input.blur();
+    $('prompt').classList.remove('on');
+  },
+
+  submit: function () {
+    this.input.blur();
+    this.opts.onSubmit(this.input.value, this);
+  },
+
+  cancel: function () {
+    this.close();
+    if (this.opts.onCancel) this.opts.onCancel();
+  },
+
+  onKey: function (code) {
+    if (document.activeElement === this.input) {
+      // Пока открыта клавиатура, перехватываем только навигацию — буквы идут в поле
+      if (code === K.OK) { this.submit(); return true; }
+      if (code === K.DOWN) { this.input.blur(); this.idx = 1; this.draw(); return true; }
+      if (code === K.BACK) { this.input.blur(); return true; }
+      return false;
+    }
+    if (code === K.UP) { this.idx = 0; this.draw(); }
+    else if (code === K.DOWN) { if (this.idx === 0) { this.idx = 1; this.draw(); } }
+    else if (code === K.LEFT) { if (this.idx === 2) { this.idx = 1; this.draw(); } }
+    else if (code === K.RIGHT) { if (this.idx === 1) { this.idx = 2; this.draw(); } }
+    else if (code === K.OK) {
+      if (this.idx === 0) this.input.focus();
+      else if (this.idx === 1) this.submit();
+      else this.cancel();
+    }
+    else if (code === K.BACK) this.cancel();
+    return true;
   }
 };

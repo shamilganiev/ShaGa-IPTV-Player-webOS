@@ -131,9 +131,10 @@ body.has-video #browser {
   background: linear-gradient(90deg, rgba(20,28,46,.97) 0%, rgba(20,28,46,.93) 62%, rgba(20,28,46,.6) 100%);
 }
 
-.col-groups, .col-chans { position: absolute; top: var(--pad-y); bottom: 132px; }
+.col-groups, .col-chans, .col-info { position: absolute; top: var(--pad-y); bottom: 132px; }
 .col-groups { left: var(--pad-x); width: 420px; }
-.col-chans  { left: 560px; right: var(--pad-x); }
+.col-chans  { left: 560px; width: 640px; }
+.col-info   { left: 1236px; right: var(--pad-x); }
 
 .col-head {
   height: 72px;
@@ -144,8 +145,8 @@ body.has-video #browser {
   font-weight: 700;
   margin-bottom: 12px;
 }
-.col-head.brand { justify-content: flex-start; font-size: 30px; }
-#groupCount { font-size: 28px; font-weight: 400; }
+.h-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.h-text .h-pre { color: var(--amber); font-weight: 400; margin-right: 12px; }
 
 #groupList, #chanList, #setGroups {
   position: absolute;
@@ -175,17 +176,18 @@ body.has-video #browser {
 /* Каналы */
 .c-row { padding: 0 20px 0 12px; }
 .c-num {
-  width: 96px;
+  width: 76px;
+  flex-shrink: 0;
   text-align: right;
-  padding-right: 22px;
+  padding-right: 16px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  font-size: 26px;
+  font-size: 24px;
 }
 .vrow.focus .c-num { color: var(--ink); }
 .c-logo {
-  width: 96px; height: 56px;
-  margin-right: 24px;
+  width: 68px; height: 44px;
+  margin-right: 18px;
   border-radius: 8px;
   background: #E8ECF4;
   display: flex; align-items: center; justify-content: center;
@@ -193,7 +195,7 @@ body.has-video #browser {
   flex-shrink: 0;
   position: relative;
 }
-.c-logo img { max-width: 86px; max-height: 48px; }
+.c-logo img { max-width: 62px; max-height: 38px; }
 .c-logo.noimg img { display: none; }
 .c-logo.noimg::after {
   content: attr(data-l);
@@ -201,7 +203,23 @@ body.has-video #browser {
   font-weight: 700;
   font-size: 28px;
 }
-.c-name { flex: 1; overflow: hidden; text-overflow: ellipsis; font-size: 30px; }
+.c-text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.c-name { font-size: 26px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+.c-prog {
+  font-size: 19px;
+  line-height: 1.25;
+  margin-top: 3px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1.25em;
+}
+.c-bar { height: 3px; margin-top: 5px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.c-bar i { display: block; height: 100%; background: var(--amber); }
+.c-bar.off { visibility: hidden; }
+.vrow.focus .c-prog { color: rgba(35,24,3,.72); }
+.vrow.focus .c-bar { background: rgba(35,24,3,.18); }
+.vrow.focus .c-bar i { background: var(--ink); }
 .c-row.playing .c-name { color: var(--amber); }
 .c-row.playing.focus .c-name { color: var(--ink); }
 .c-row.playing .c-name::before {
@@ -354,7 +372,7 @@ body.has-video #settings { background: rgba(20,28,46,.96); }
   position: fixed; left: 0; top: 0; width: 100%; height: 100%;
   background: rgba(20,28,46,.92);
   display: none;
-  z-index: 30;
+  z-index: 60;
 }
 #busy.on { display: block; }
 #busy p { position: absolute; top: 600px; width: 100%; text-align: center; font-size: 32px; color: var(--muted); }
@@ -437,3 +455,70 @@ body.has-video #settings { background: rgba(20,28,46,.96); }
   overflow: hidden;
   display: none;
 }
+
+/* ---------- Третья колонка: программа передач ---------- */
+.col-info { overflow: hidden; }
+.i-ch { color: var(--muted); font-size: 24px; margin: -6px 4px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#iNowBox { padding: 12px 8px 0 4px; }
+.i-label {
+  color: var(--amber);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin: 8px 0 8px;
+}
+.i-title { font-size: 34px; font-weight: 700; line-height: 1.2; max-height: 3.6em; overflow: hidden; }
+.i-time { display: flex; justify-content: space-between; color: var(--muted); font-size: 24px; margin-top: 14px; font-variant-numeric: tabular-nums; }
+.i-bar { height: 8px; border-radius: 4px; background: var(--panel-2); margin: 10px 0 18px; overflow: hidden; }
+.i-bar i { display: block; height: 100%; width: 0; background: var(--amber); border-radius: 4px; }
+.i-desc {
+  margin: 0 0 22px;
+  font-size: 23px;
+  line-height: 1.45;
+  color: #C3CBDD;
+  max-height: 10.15em;    /* 7 строк */
+  overflow: hidden;
+}
+.i-next-row { display: flex; font-size: 24px; padding: 7px 0; border-top: 1px solid var(--line); }
+.i-next-row b { width: 92px; flex-shrink: 0; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.i-next-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.i-msg { color: var(--muted); font-size: 26px; margin: 24px 4px; }
+.b-prog { color: var(--text); font-size: 28px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b-prog .t { color: var(--muted); margin-left: 12px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Меню, окно ввода, подсказки в окнах ---------- */
+.m-msg { color: var(--muted); font-size: 26px; margin: -24px 0 28px; max-width: 900px; }
+.modal .box.m-box, .modal .box.pr-box { min-width: 820px; max-width: 1100px; }
+.m-row {
+  height: 72px;
+  line-height: 72px;
+  padding: 0 28px;
+  border-radius: 10px;
+  font-size: 30px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-row.focus { background: var(--amber); color: var(--ink); }
+#prInput {
+  width: 100%;
+  height: 80px;
+  padding: 0 24px;
+  border: 3px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 30px;
+  outline: none;
+}
+#prInput.focus, #prInput:focus { border-color: var(--amber); }
+#prInput::placeholder { color: #5D6886; }
+.pp-hint { text-align: center; margin: -24px auto 24px; max-width: 640px; font-size: 22px; }
+
+/* Служебные строки вверху колонки групп («> Поиск», «> Плейлисты»…) */
+.g-row.svc .g-name { color: var(--muted); }
+.g-row.svc.focus .g-name { color: var(--ink); }
+
+/* Приветствие */
+.setup-wrap .btn-row { margin-top: 8px; }

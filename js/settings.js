@@ -26,20 +26,21 @@ var Settings = {
 
   // ---------- Главный список ----------
   buildMain: function () {
-    var src = Config.d.source;
-    var other = Lang.list[(Lang.list.indexOf(Lang.cur) + 1) % Lang.list.length];
+    // Плейлисты и язык — служебные строки вверху левой колонки (как в Roku)
     this.items = [
-      { label: t('sPlaylist'), value: src ? shortUrl(src.url) : '',
-        action: function () { App.show('setup', { allowBack: true }); } },
       { label: t('sRefresh'), value: '', action: function () { Settings.refresh(); } },
-      { label: t('sGroups'), value: t('sGroupsValue'), action: function () { Settings.openGroups(); } },
+      { key: 'epg', label: t('sEpg'), value: Settings.epgStatus(), action: function () {
+          EPG.load(App.meta, App.channels, true);
+          Toast.show(t('epgLoading'));
+        } },
+      { key: 'groups', label: t('sGroups'), value: t('sGroupsValue'), action: function () { Settings.openGroups(); } },
       { label: t('sPin'), value: Config.d.pin ? t('sPinOn') : t('sPinOff'),
         action: function () { Settings.pinMenu(); } },
-      { label: t('sLang'), value: I18N[Lang.cur]._name,
-        action: function () { Settings.setLang(other); } },
-      { label: t('sEngine'), value: t(Config.d.engine === 'hlsjs' ? 'engHls' : 'engNative'),
+      { key: 'zap', label: t('sZap'), value: t(Config.d.zapInvert ? 'zapList' : 'zapClassic'),
+        action: function () { Config.d.zapInvert = !Config.d.zapInvert; Config.save(); Settings.draw(); } },
+      { key: 'engine', label: t('sEngine'), value: t(Config.d.engine === 'hlsjs' ? 'engHls' : 'engNative'),
         action: function () { Settings.toggleEngine(); } },
-      { label: t('sLog'), value: t('sLogValue', { n: Log.buf.length }), action: function () { Settings.openLog(); } },
+      { key: 'log', label: t('sLog'), value: t('sLogValue', { n: Log.buf.length }), action: function () { Settings.openLog(); } },
       { label: t('sVersion'), value: App.version, action: null },
       { label: t('sClose'), value: '', action: function () { App.confirmExit(); } }
     ];
@@ -89,29 +90,36 @@ var Settings = {
     });
   },
 
+  focusKey: function (key) {
+    for (var i = 0; i < this.items.length; i++) if (this.items[i].key === key) { this.idx = i; break; }
+    this.drawMain();
+  },
+
+  epgStatus: function () {
+    if (EPG.loading && EPG.state !== 'ready') return t('epgLoadingShort');
+    if (EPG.state === 'ready') return t('epgStatus', { n: Lang.count(EPG.stats ? EPG.stats.channels : 0), time: EPG.hm(EPG.loadedAt) });
+    if (EPG.state === 'nourl') return t('epgNoSourceShort');
+    if (EPG.state === 'error') return t('epgErrorShort');
+    return '';
+  },
+
   activate: function () {
     var it = this.items[this.idx];
     if (it && it.action) it.action();
   },
 
   refresh: function () {
+    var pl = Playlists.byId(App.plId);
+    if (!pl) return;
     Busy.show(t('loading'));
-    Source.load(Config.d.source).then(function (res) {
+    App.refreshPlaylist(pl, false).then(function (res) {
       Busy.hide();
-      App.setChannels(res, true);
       Toast.show(t('sRefreshed', { count: Lang.count(res.channels.length) }));
+      Settings.draw();
     }).catch(function (err) {
       Busy.hide();
       Toast.show(App.errText(err), 5000);
     });
-  },
-
-  setLang: function (code) {
-    Config.d.lang = code;
-    Config.save();
-    Lang.set(code);
-    App.applyI18n();
-    this.draw();
   },
 
   pinMenu: function () {
@@ -123,14 +131,7 @@ var Settings = {
     App.askPin(function () {
       Confirm.open(t('sPin'), [
         { label: t('sPinChange'), action: function () { App.setNewPin(function () { self.draw(); }); } },
-        { label: t('sPinRemove'), action: function () {
-            // Удаление PIN не должно открывать закрытые группы — они становятся скрытыми
-            App.hideAllLocked('PIN удалён');
-            Config.d.pin = null;
-            Config.save();
-            Toast.show(t('pinRemoved'));
-            self.draw();
-          } },
+        { label: t('sPinRemove'), action: function () { App.removePin('удалён в настройках'); } },
         { label: t('cancel') }
       ]);
     });
@@ -188,27 +189,24 @@ var Settings = {
     row._s.v.className = 's-value st-' + st;
   },
 
-  // OK на группе — меню из трёх состояний, курсор на текущем
+  // OK на группе — окно из трёх режимов + «Отмена», текущий отмечен «* » (как в Roku)
   cycleGroup: function (i) {
     var self = this, g = this.glist.items[i], st = this.groupState(g);
-    var opts = [
-      { st: 'visible', label: t('gsVisible') },
-      { st: 'locked', label: t('gsLocked') },
-      { st: 'hidden', label: t('gsHidden') }
-    ];
-    Confirm.open(g || t('noGroup'), opts.map(function (o) {
-      return { label: o.label, action: function () { self.setGroupState(g, o.st); } };
-    }));
-    Confirm.idx = ['visible', 'locked', 'hidden'].indexOf(st);
-    Confirm.draw();
+    var opts = [['visible', 'gsVisible'], ['locked', 'gsLocked'], ['hidden', 'gsHidden']];
+    var items = opts.map(function (o) {
+      return { label: t(o[1]), mark: o[0] === st, action: function () { self.setGroupState(g, o[0]); } };
+    });
+    items.push({ label: t('cancel') });
+    Menu.open(g || t('noGroup'), t('groupModeMsg'), items, { focus: ['visible', 'locked', 'hidden'].indexOf(st) });
   },
 
-  // PIN спрашивается только когда защита ослабляется: из «Скрыта» во что угодно
-  // и из «Под PIN-кодом» в «Видна». Без заданного PIN защиты нет — всё свободно.
+  // Ослабление защиты (из «Скрыта» во что угодно, из «По PIN» в «Показана»):
+  //  - PIN задан — спросить его (один раз за заход в «Группы»);
+  //  - PIN не задан — сначала придумать PIN (как в Roku).
+  // «По PIN» без заданного PIN тоже требует сначала его создать.
   setGroupState: function (g, next) {
     var self = this, st = this.groupState(g);
     if (next === st) return;
-    if (next === 'locked' && !Config.d.pin) { Toast.show(t('pinNeeded'), 4000); return; }
     var weaker = st === 'hidden' || (st === 'locked' && next === 'visible');
     var apply = function () {
       var d = Config.d;
@@ -219,9 +217,12 @@ var Settings = {
       if (App.openLocked === g) App.openLocked = null;
       Config.save();
       Log.info('Группа «' + g + '»: ' + st + ' → ' + next);
+      self.draw();
       self.glist.render();
     };
-    if (weaker && Config.d.pin && !this.pinOk) {
+    if (!Config.d.pin && (weaker || next === 'locked')) {
+      App.setNewPin(function () { self.pinOk = true; apply(); }, t('pinCreateFirst'));
+    } else if (weaker && !this.pinOk) {
       App.askPin(function () { self.pinOk = true; apply(); });
     } else {
       apply();
@@ -241,7 +242,7 @@ var Settings = {
         ]);
         return true;
       }
-      else if (code === K.BACK) { this.mode = 'main'; this.idx = 6; this.draw(); return true; }
+      else if (code === K.BACK) { this.mode = 'main'; this.draw(); this.focusKey('log'); return true; }
       else return false;
       this.drawLog();
       return true;
@@ -252,22 +253,17 @@ var Settings = {
       else if (code === K.CHUP) this.glist.page(-1);
       else if (code === K.CHDN) this.glist.page(1);
       else if (code === K.OK) this.cycleGroup(this.glist.index);
-      else if (code === K.BACK) { this.mode = 'main'; this.idx = 2; this.draw(); }
+      else if (code === K.BACK) { this.mode = 'main'; this.draw(); this.focusKey('groups'); }
       else return false;
       return true;
     }
-    if (code === K.UP) { this.idx = Math.max(0, this.idx - 1); this.drawMain(); }
-    else if (code === K.DOWN) { this.idx = Math.min(this.items.length - 1, this.idx + 1); this.drawMain(); }
+    var n = this.items.length;
+    if (code === K.UP) { this.idx = (this.idx - 1 + n) % n; this.drawMain(); }
+    else if (code === K.DOWN) { this.idx = (this.idx + 1) % n; this.drawMain(); }
     else if (code === K.OK) this.activate();
-    else if ((code === K.LEFT || code === K.RIGHT) && (this.idx === 4 || this.idx === 5)) this.activate();
+    else if ((code === K.LEFT || code === K.RIGHT) && /^(engine|zap)$/.test(this.items[this.idx].key || '')) this.activate();
     else if (code === K.BACK || code === K.BLUE) App.show(this.returnTo, { fromPlayer: true });
     else return false;
     return true;
   }
 };
-
-// Ссылку с токеном целиком на экран не выводим: только сервер и начало пути.
-function shortUrl(u) {
-  var s = Log.url(u);
-  return s.length > 48 ? s.slice(0, 47) + '…' : s;
-}

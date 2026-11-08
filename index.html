@@ -14,28 +14,36 @@
 <section id="setup" class="screen">
   <div class="setup-wrap">
     <div class="brand"><span class="brand-mark"></span><span data-i18n="appName"></span></div>
-    <h1 data-i18n="setupTitle"></h1>
-    <p class="lead" data-i18n="setupHint"></p>
-    <input id="urlInput" type="url" spellcheck="false" autocomplete="off" autocapitalize="off">
-    <p id="setupError" class="error"></p>
-    <div class="btn-row">
-      <button id="btnLoad" class="btn" data-i18n="load"></button>
-      <button id="btnDemo" class="btn" data-i18n="demo"></button>
-    </div>
-    <p class="note" data-i18n="disclaimer"></p>
+    <h1 data-i18n="welcomeTitle"></h1>
+    <p class="lead" data-i18n="welcomeText"></p>
+    <div class="btn-row"><button id="btnAdd" class="btn" data-i18n="welcomeBtn"></button></div>
   </div>
 </section>
 
 <!-- Список каналов -->
 <section id="browser" class="screen">
   <div class="col-groups">
-    <div class="col-head brand"><span class="brand-mark"></span><span data-i18n="appName"></span></div>
+    <div class="col-head"><span id="gHead" class="h-text"></span></div>
     <div id="groupList"></div>
   </div>
   <div class="col-chans">
-    <div class="col-head"><span id="groupTitle"></span><span id="groupCount" class="muted"></span></div>
+    <div class="col-head"><span id="cHead" class="h-text"></span></div>
     <div id="chanList"></div>
     <p id="chanEmpty" class="empty"></p>
+  </div>
+  <div class="col-info" id="infoPanel">
+    <div class="col-head"><span id="iHead" class="h-text"></span></div>
+    <div id="iCh" class="i-ch"></div>
+    <div id="iNowBox">
+      <div class="i-label" data-i18n="epgNow"></div>
+      <div id="iTitle" class="i-title"></div>
+      <div class="i-time"><span id="iTime"></span><span id="iLeft"></span></div>
+      <div class="i-bar"><i id="iBar"></i></div>
+      <p id="iDesc" class="i-desc"></p>
+      <div class="i-label" id="iNextLabel" data-i18n="epgNext"></div>
+      <div id="iNext"></div>
+    </div>
+    <p id="iMsg" class="i-msg"></p>
   </div>
   <footer class="hints">
     <span class="hint"><b class="k">OK</b><span data-i18n="hintPlay"></span></span>
@@ -53,6 +61,7 @@
     <div class="b-main">
       <div id="bName" class="b-name"></div>
       <div id="bSub" class="b-sub"></div>
+      <div id="bProg" class="b-prog"></div>
     </div>
     <div id="bStatus" class="b-status"></div>
   </div>
@@ -80,13 +89,33 @@
 <div id="confirm" class="modal">
   <div class="box">
     <h2 id="cfTitle"></h2>
+    <p id="cfMsg" class="m-msg"></p>
     <div id="cfBtns" class="btn-row"></div>
+  </div>
+</div>
+
+<div id="menu" class="modal">
+  <div class="box m-box">
+    <h2 id="mnTitle"></h2>
+    <p id="mnMsg" class="m-msg"></p>
+    <div id="mnList"></div>
+  </div>
+</div>
+
+<div id="prompt" class="modal">
+  <div class="box pr-box">
+    <h2 id="prTitle"></h2>
+    <p id="prMsg" class="m-msg"></p>
+    <input id="prInput" type="text" spellcheck="false" autocomplete="off" autocapitalize="off">
+    <p id="prError" class="error"></p>
+    <div class="btn-row"><button id="prOk" class="btn"></button><button id="prCancel" class="btn"></button></div>
   </div>
 </div>
 
 <div id="pinpad" class="modal">
   <div class="box">
     <h2 id="ppTitle"></h2>
+    <p id="ppHint" class="m-msg pp-hint"></p>
     <div id="ppDots" class="pp-dots"><i></i><i></i><i></i><i></i></div>
     <p id="ppMsg" class="error"></p>
     <div id="ppKeys" class="pp-keys"></div>
@@ -97,9 +126,11 @@
 <script src="js/log.js"></script>
 <script src="js/lib/hls.min.js"></script>
 <script src="js/i18n.js"></script>
+<script src="js/text.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/m3u.js"></script>
 <script src="js/source.js"></script>
+<script src="js/epg.js"></script>
 <script src="js/vlist.js"></script>
 <script src="js/dialogs.js"></script>
 <script src="js/player.js"></script>
